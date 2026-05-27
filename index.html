@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Renovate Reporter</title>
+<style>
+:root {
+  --bg:          #f4f3f0;
+  --surface:     #ffffff;
+  --bar:         #1c1917;
+  --text:        #1c1917;
+  --text-2:      #78716c;
+  --border:      #e7e5e4;
+  --border-2:    #d6d3d1;
+  --accent:      #ea580c;
+  --accent-hi:   #fff4ed;
+  --accent-mid:  #ffe8d5;
+  --blue:        #1d4ed8;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --header-h: 48px;
+  --radius: 5px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Toolbar ───────────────────────────────────────────── */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: var(--bar);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  min-height: var(--header-h);
+  flex-wrap: wrap;
+  box-shadow: 0 1px 0 rgba(0,0,0,.5);
+}
+
+.logo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #fafaf9;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 10px 0;
+}
+.logo em { color: var(--accent); font-style: normal; }
+
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: #44403c;
+  flex-shrink: 0;
+}
+
+#log-select {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #d6d3d1;
+  background: #292524;
+  border: 1px solid #44403c;
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  height: 30px;
+  min-width: 210px;
+  max-width: 340px;
+  flex: 1 1 210px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s;
+}
+#log-select:focus { border-color: var(--accent); }
+#log-select option { background: #1c1917; }
+
+.search-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #78716c;
+  pointer-events: none;
+  font-size: 13px;
+  line-height: 1;
+}
+#search {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: #d6d3d1;
+  background: #292524;
+  border: 1px solid #44403c;
+  border-radius: var(--radius);
+  padding: 4px 8px 4px 26px;
+  height: 30px;
+  width: 190px;
+  outline: none;
+  transition: border-color .15s, width .2s;
+}
+#search::placeholder { color: #57534e; }
+#search:focus { border-color: var(--accent); width: 240px; }
+
+/* Stats */
+#stats {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pill-n   { background: #292524; color: #a8a29e; }
+.pill-out { background: #431407; color: #fb923c; }
+.pill-out .num { font-weight: 700; font-family: var(--mono); }
+.pill-n   .num { font-weight: 700; font-family: var(--mono); }
+.pill-show { background: #1e3a5f; color: #93c5fd; }
+.pill-show .num { font-weight: 700; font-family: var(--mono); }
+
+/* Dot before outdated pill */
+.pill-out::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+#export-btn {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  padding: 0 12px;
+  height: 30px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .15s, opacity .15s;
+}
+#export-btn:hover:not(:disabled) { background: #c2410c; }
+#export-btn:disabled { opacity: .35; cursor: default; }
+
+/* ── Notice ─────────────────────────────────────────────── */
+#notice {
+  background: #431407;
+  color: #fed7aa;
+  border-bottom: 1px solid #7c2d12;
+  padding: 6px 14px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#notice.hidden { display: none; }
+#notice button {
+  padding: 2px 9px;
+  border: 1px solid #c2410c;
+  border-radius: 3px;
+  background: transparent;
+  color: #fed7aa;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .1s;
+}
+#notice button:hover { background: #7c2d12; }
+
+/* ── Loading ─────────────────────────────────────────────── */
+#loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: calc(100vh - var(--header-h));
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Table scroll container ──────────────────────────────── */
+.table-wrap {
+  overflow: auto;
+  height: calc(100vh - var(--header-h));
+  background: var(--bg);
+}
+
+/* ── Table ───────────────────────────────────────────────── */
+table {
+  width: 100%;
+  min-width: 700px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+/* Column proportions */
+colgroup col:nth-child(1)  { width: 13%; } /* Repository    */
+colgroup col:nth-child(2)  { width:  7%; } /* Manager       */
+colgroup col:nth-child(3)  { width: 11%; } /* Package File  */
+colgroup col:nth-child(4)  { width: 12%; } /* Dep Name      */
+colgroup col:nth-child(5)  { width:  9%; } /* Package Name  */
+colgroup col:nth-child(6)  { width:  8%; } /* Current Value */
+colgroup col:nth-child(7)  { width:  8%; } /* Curr Version  */
+colgroup col:nth-child(8)  { width:  8%; } /* Latest Ver    */
+colgroup col:nth-child(9)  { width:  7%; } /* Datasource    */
+colgroup col:nth-child(10) { width:  8%; } /* Versioning    */
+colgroup col:nth-child(11) { width:  7%; } /* Outdated?     */
+
+/* Sticky header row */
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 2px solid var(--border-2);
+  border-right: 1px solid var(--border);
+  padding: 9px 10px 8px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color .1s, background .1s;
+}
+thead th:last-child { border-right: none; }
+thead th:hover { color: var(--text); background: #fafaf9; }
+thead th.sort-asc,
+thead th.sort-desc { color: var(--blue); }
+thead th.sort-asc::after  { content: " ↑"; font-size: 9px; }
+thead th.sort-desc::after { content: " ↓"; font-size: 9px; }
+
+/* Body rows */
+tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr:nth-child(even) > td { background: #faf9f7; }
+tbody tr:hover > td { background: #f0f4ff !important; }
+
+/* Outdated: left accent stripe + warm wash */
+tbody tr.outdated > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 9px;
+}
+tbody tr.outdated > td { background: var(--accent-hi); }
+tbody tr.outdated:nth-child(even) > td { background: var(--accent-mid); }
+tbody tr.outdated:hover > td { background: #ffd9bb !important; }
+
+td {
+  padding: 7px 10px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  border-right: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text);
+  line-height: 1.45;
+}
+td:last-child { border-right: none; }
+
+/* Version/code columns → monospace */
+/* Current Value(6), Current Version(7), Latest Version(8), Versioning(10) */
+td:nth-child(6),
+td:nth-child(7),
+td:nth-child(8),
+td:nth-child(10) {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #292524;
+}
+
+/* Muted secondary columns: Manager(2), Datasource(9) */
+td:nth-child(2),
+td:nth-child(9) {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+/* Outdated badge */
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.badge-yes {
+  color: #9a3412;
+  background: #fff4ed;
+  border-color: #fdba74;
+}
+.badge-no {
+  color: #d6d3d1;
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* No results */
+#no-results {
+  display: none;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+/* ── Scrollbar styling (webkit) ──────────────────────────── */
+.table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+.table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+.table-wrap::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+.table-wrap::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Renovate <em>Reporter</em></div>
+  <div class="toolbar-sep"></div>
+  <select id="log-select"><option value="">Loading…</option></select>
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input id="search" type="search" placeholder="Search…" autocomplete="off">
+  </div>
+  <div id="stats"></div>
+  <button id="export-btn" disabled>Export CSV</button>
+</header>
+
+<div id="notice" class="hidden">
+  <span id="notice-text"></span>
+  <button onclick="location.reload()">Reload</button>
+  <button onclick="dismissNotice()">Dismiss</button>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  Loading logs…
+</div>
+
+<div class="table-wrap" id="table-wrap" style="display:none">
+  <table>
+    <colgroup>
+      <col><col><col><col><col><col><col><col><col><col><col>
+    </colgroup>
+    <thead><tr id="thead-row"></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div id="no-results">No rows match your search.</div>
+</div>
+
+<script>
+const COLS = [
+  "Repository", "Manager", "Package File", "Dep Name", "Package Name",
+  "Current Value", "Current Version", "Latest Version", "Datasource", "Versioning", "Outdated?"
+];
+const KEYS = [
+  "repository", "manager", "packageFile", "depName", "packageName",
+  "currentValue", "currentVersion", "latestVersion", "datasource", "versioning", "outdated"
+];
+
+const $ = id => document.getElementById(id);
+
+const logSelect   = $("log-select");
+const searchInput = $("search");
+const exportBtn   = $("export-btn");
+const statsEl     = $("stats");
+const loadingEl   = $("loading");
+const tableWrap   = $("table-wrap");
+const tbody       = $("tbody");
+const theadRow    = $("thead-row");
+const noResults   = $("no-results");
+const notice      = $("notice");
+const noticeText  = $("notice-text");
+
+let allRows      = [];
+let sortCol      = 10;
+let sortDir      = "desc";
+let currentLog   = "";
+let statusVer    = 0;
+let knownLogs    = new Set();
+
+// ── Build sortable header ─────────────────────────────────
+COLS.forEach((col, i) => {
+  const th = document.createElement("th");
+  th.textContent = col;
+  th.dataset.col = i;
+  th.addEventListener("click", () => {
+    sortDir = (sortCol === i && sortDir === "asc") ? "desc" : "asc";
+    if (sortCol !== i) { sortCol = i; sortDir = "asc"; }
+    renderTable();
+  });
+  theadRow.appendChild(th);
+});
+
+// ── Helpers ───────────────────────────────────────────────
+function colVal(row, i) {
+  const v = row[KEYS[i]];
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  return v == null ? "" : String(v);
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── Render ────────────────────────────────────────────────
+function renderTable() {
+  theadRow.querySelectorAll("th").forEach((th, i) => {
+    th.className = sortCol === i ? "sort-" + sortDir : "";
+  });
+
+  const q = searchInput.value.toLowerCase();
+  let rows = allRows;
+
+  if (q) {
+    rows = rows.filter(r =>
+      KEYS.some(k => {
+        const v = r[k];
+        return (v == null ? "" : String(v)).toLowerCase().includes(q);
+      })
+    );
+  }
+
+  const dir = sortDir === "asc" ? 1 : -1;
+  rows = [...rows].sort((a, b) => {
+    const av = colVal(a, sortCol);
+    const bv = colVal(b, sortCol);
+    return dir * av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  const outdatedTotal = allRows.filter(r => r.outdated).length;
+  const shownDiff     = rows.length < allRows.length;
+
+  statsEl.innerHTML = [
+    `<span class="pill pill-n"><span class="num">${allRows.length}</span>&nbsp;deps</span>`,
+    outdatedTotal > 0
+      ? `<span class="pill pill-out"><span class="num">${outdatedTotal}</span>&nbsp;outdated</span>`
+      : "",
+    shownDiff
+      ? `<span class="pill pill-show"><span class="num">${rows.length}</span>&nbsp;shown</span>`
+      : "",
+  ].join("");
+
+  if (rows.length === 0) {
+    tbody.innerHTML = "";
+    noResults.style.display = "block";
+    return;
+  }
+  noResults.style.display = "none";
+
+  const html = rows.map(r => {
+    const cls = r.outdated ? ' class="outdated"' : "";
+    const cells = COLS.map((_, i) => {
+      const v = colVal(r, i);
+      const inner = i === 10
+        ? `<span class="badge badge-${v}">${esc(v)}</span>`
+        : esc(v);
+      return `<td title="${esc(v)}">${inner}</td>`;
+    }).join("");
+    return `<tr${cls}>${cells}</tr>`;
+  }).join("");
+
+  tbody.innerHTML = html;
+}
+
+// ── Load a single log ─────────────────────────────────────
+async function loadLog(name) {
+  if (!name) return;
+  currentLog = name;
+  loadingEl.style.display = "flex";
+  tableWrap.style.display = "none";
+  exportBtn.disabled = true;
+
+  const res = await fetch("/api/deps?log=" + encodeURIComponent(name));
+  if (!res.ok) {
+    loadingEl.innerHTML = "Failed to load " + esc(name);
+    return;
+  }
+  allRows = await res.json();
+  loadingEl.style.display = "none";
+  tableWrap.style.display = "";
+  exportBtn.disabled = false;
+  renderTable();
+}
+
+// ── Populate log selector ─────────────────────────────────
+async function refreshLogList(selectName) {
+  const res = await fetch("/api/logs");
+  const names = await res.json();
+  const prev = selectName || logSelect.value;
+  logSelect.innerHTML = names
+    .map(n => `<option value="${esc(n)}"${n === prev ? " selected" : ""}>${esc(n)}</option>`)
+    .join("");
+  names.forEach(n => knownLogs.add(n));
+  return names;
+}
+
+async function init() {
+  const names = await refreshLogList();
+  if (names.length) {
+    await loadLog(names[0]);
+  } else {
+    loadingEl.innerHTML = "No logs found in directory.";
+  }
+  const sr = await fetch("/api/status");
+  const { version } = await sr.json();
+  statusVer = version;
+  setInterval(pollStatus, 30000);
+}
+
+// ── Background poll for new logs ──────────────────────────
+async function pollStatus() {
+  try {
+    const res = await fetch("/api/status");
+    const { version } = await res.json();
+    if (version !== statusVer) {
+      const res2  = await fetch("/api/logs");
+      const names = await res2.json();
+      const newOnes = names.filter(n => !knownLogs.has(n));
+      await refreshLogList(currentLog);
+      if (newOnes.length) {
+        noticeText.textContent = `${newOnes.length} new log(s) available: ${newOnes.join(", ")}`;
+        notice.classList.remove("hidden");
+      }
+      statusVer = version;
+    }
+  } catch { /* network hiccup */ }
+}
+
+function dismissNotice() {
+  notice.classList.add("hidden");
+}
+
+// ── Events ────────────────────────────────────────────────
+logSelect.addEventListener("change", () => loadLog(logSelect.value));
+searchInput.addEventListener("input", renderTable);
+exportBtn.addEventListener("click", () => {
+  if (currentLog) window.location = "/export?log=" + encodeURIComponent(currentLog);
+});
+
+// ── Layout: keep table-wrap height in sync with toolbar ───
+function syncLayout() {
+  const h = document.querySelector("header").offsetHeight;
+  document.documentElement.style.setProperty("--header-h", h + "px");
+}
+window.addEventListener("resize", syncLayout);
+
+init().then(syncLayout);
+</script>
+</body>
+</html>
