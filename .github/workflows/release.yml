@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Test
+        run: go test ./...
+
+      - name: Extract changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+
+          awk -v version="$version" '
+            BEGIN { found = 0 }
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 42 }
+          ' CHANGELOG.md > release-notes.md || {
+            echo "CHANGELOG.md must contain a section matching ## [$version] for tag ${GITHUB_REF_NAME}." >&2
+            exit 1
+          }
+
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "Changelog section for ${GITHUB_REF_NAME} is empty." >&2
+            exit 1
+          fi
+
+          cat >> release-notes.md <<EOF
+
+          ## Container Image
+
+          \`ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}\`
+          EOF
+
+      - name: Build release binaries
+        run: |
+          set -eu
+
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+
+          build_one() {
+            os="$1"
+            arch="$2"
+            ext=""
+            if [ "$os" = "windows" ]; then
+              ext=".exe"
+            fi
+
+            base="renovate-reporter_${version}_${os}_${arch}"
+            outdir="dist/$base"
+            mkdir -p "$outdir"
+
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$outdir/renovate-reporter$ext" .
+            cp README.md LICENSE "$outdir/"
+
+            if [ "$os" = "windows" ]; then
+              (cd dist && zip -qr "$base.zip" "$base")
+            else
+              tar -C dist -czf "dist/$base.tar.gz" "$base"
+            fi
+
+            rm -rf "$outdir"
+          }
+
+          build_one linux amd64
+          build_one linux arm64
+          build_one darwin amd64
+          build_one darwin arm64
+          build_one windows amd64
+          build_one windows arm64
+
+          (cd dist && sha256sum * > checksums.txt)
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag

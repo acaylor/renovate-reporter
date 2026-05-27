@@ -20,6 +20,23 @@ Point it at a directory of Renovate `.json` or `.log.json` files, then open the 
 go install github.com/acaylor/renovate-reporter@latest
 ```
 
+## Download A Release
+
+Prebuilt binaries are attached to each GitHub release:
+
+```text
+https://github.com/acaylor/renovate-reporter/releases
+```
+
+Release tags also publish matching container images. For example, for `v0.1.0`:
+
+```sh
+docker run --rm \
+  -p 8080:8080 \
+  -v "$PWD/logs:/logs:ro" \
+  ghcr.io/acaylor/renovate-reporter:v0.1.0
+```
+
 ## CLI Usage
 
 ```sh
