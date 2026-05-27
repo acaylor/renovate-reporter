@@ -35,6 +35,7 @@ jobs:
             BEGIN { found = 0 }
             $0 ~ "^## \\[" version "\\]" { found = 1; next }
             found && /^## \[/ { exit }
+            found && /^\[[^]]+\]:/ { exit }
             found { print }
             END { if (!found) exit 42 }
           ' CHANGELOG.md > release-notes.md || {
