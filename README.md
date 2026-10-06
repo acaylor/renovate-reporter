@@ -2,17 +2,27 @@
 
 Renovate Reporter is a small web UI for browsing dependency data extracted from Renovate debug logs.
 
-Point it at a directory of Renovate `.json` or `.log.json` files, then open the local web UI to search, sort, inspect outdated dependencies, and export rows as CSV.
+Point it at a directory of Renovate `.json` or `.log.json` files, then open the local web UI to see which dependencies need updates, how risky those updates are, and what changed since the previous run.
+
+![Renovate Reporter overview](docs/screenshots/overview.png)
 
 ## Features
 
 - Parses newline-delimited JSON Renovate debug logs.
 - Serves a self-contained web UI on a local HTTP port.
-- Shows repository, manager, package file, dependency, current version, latest version, datasource, and versioning.
-- Highlights dependencies that appear outdated.
-- Polls the log directory for new `.json` files every 30 seconds.
-- Exports the selected log's dependency rows as CSV.
+- Summarizes each run by update type (major, minor, patch), up to date, and skipped dependencies. Click any segment to filter.
+- Compares a run with the previous run (or any other run) to show newly outdated dependencies and dependencies brought up to date.
+- Groups dependencies by repository, with the repositories that have the most severe pending updates listed first.
+- Filters by free-text search, repository, and manager. The current view is kept in the URL so it can be bookmarked or shared.
+- Shows a details panel for each dependency with every available update, release dates, breaking-change flags, skip reasons, Renovate warnings, deprecation notices, and links to the source, releases, and changelog.
+- Exports the rows currently shown as CSV.
+- Polls the log directory every 30 seconds for new, changed, and removed `.json` files.
+- Works on small screens and supports light and dark themes.
 - Runs as a standalone CLI binary or a minimal container image.
+
+| Dependency details | Newly outdated since the previous run (dark theme) |
+| --- | --- |
+| ![Dependency details panel](docs/screenshots/details.png) | ![Newly outdated filter in the dark theme](docs/screenshots/dark-new-since-previous.png) |
 
 ## Install From Source
 
@@ -54,6 +64,22 @@ Then open:
 ```text
 http://localhost:8080
 ```
+
+To try it without your own logs, use the bundled demo data:
+
+```sh
+go run . testdata/demo
+```
+
+### Keyboard shortcuts
+
+- `/` focuses the search box.
+- `↑` and `↓` move between rows, and `Enter` opens the selected dependency.
+- `Esc` closes the details panel or clears the search.
+
+### Shareable views
+
+Filters are stored in the URL fragment, for example `http://localhost:8080/#status=major,minor&repo=example/storefront`. Supported keys are `log`, `vs` (comparison run, or `none`), `status` (`major`, `minor`, `patch`, `other`, `current`, `skipped`), `delta` (`new` or `resolved`), `q`, `repo`, `manager`, `group=0`, and `sort`.
 
 ## Docker Usage
 
@@ -99,16 +125,18 @@ services:
 
 Renovate Reporter reads each `.json` file in the log directory. It is designed for Renovate debug logs written as newline-delimited JSON.
 
-It looks for Renovate log entries that contain repository configuration data and extracts dependencies from manager entries with `packageFile` and `deps` fields.
+It looks for Renovate log entries that contain repository configuration data and extracts dependencies from manager entries with `packageFile` and `deps` fields. Each dependency's `updates`, `skipReason`, `warnings`, `deprecationMessage`, `sourceUrl`, `homepage`, and `changelogUrl` fields are used when present.
+
+Runs are ordered by file name, newest first, so names that start with or contain a sortable timestamp (for example `renovate-2026-10-05_0600.log.json`) give the best results. When a file name contains a date, the UI shows it as the run time.
 
 ## HTTP Endpoints
 
 The web UI uses these local endpoints:
 
 - `GET /api/logs`
-- `GET /api/deps?log=<filename>`
+- `GET /api/deps?log=<filename>` returns the dependency rows, including `updateType`, `updates`, `skipReason`, `warnings`, and link fields when Renovate reported them
 - `GET /api/status`
-- `GET /export?log=<filename>`
+- `GET /export?log=<filename>` returns every row of a log as CSV. The UI's Export CSV button exports only the rows currently shown.
 
 ## Development
 

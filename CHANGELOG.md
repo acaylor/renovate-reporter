@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Run summary with a breakdown by update type (major, minor, patch, other), up to date, and skipped. Each segment works as a filter.
+- Comparison with the previous run, or any chosen run, showing newly outdated dependencies and dependencies brought up to date.
+- Grouping by repository, with collapsible groups ordered by pending update severity.
+- Repository and manager filters, multi-word search, and filter state kept in the URL.
+- Dependency details panel with all available updates, release dates, breaking-change flags, skip reasons, warnings, deprecation notices, and source, release, and changelog links.
+- Keyboard shortcuts for search, row navigation, and the details panel.
+- Dark theme, and a card layout for small screens.
+- `/api/deps` rows now include `updateType`, `updates`, `depType`, `skipReason`, `warnings`, `deprecationMessage`, `sourceUrl`, `homepage`, `changelogUrl`, and `currentVersionTimestamp`.
+- CSV exports include Update Type, Skip Reason, and Source URL columns.
+- Demo Renovate logs in `testdata/demo`.
+
+### Changed
+
+- Export CSV in the UI now exports the rows currently shown instead of the whole log.
+
+### Fixed
+
+- Log files that change after they are first loaded, such as a log that was still being written, are now reparsed. Deleted log files are removed from the run list.
+
 ## [0.1.0] - 2026-05-27
 
 ### Added

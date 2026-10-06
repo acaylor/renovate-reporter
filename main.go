@@ -33,6 +33,25 @@ type Row struct {
 	Datasource     string `json:"datasource"`
 	Versioning     string `json:"versioning"`
 	Outdated       bool   `json:"outdated"`
+
+	UpdateType              string   `json:"updateType,omitempty"`
+	Updates                 []Update `json:"updates,omitempty"`
+	DepType                 string   `json:"depType,omitempty"`
+	SkipReason              string   `json:"skipReason,omitempty"`
+	Warnings                []string `json:"warnings,omitempty"`
+	DeprecationMessage      string   `json:"deprecationMessage,omitempty"`
+	SourceURL               string   `json:"sourceUrl,omitempty"`
+	Homepage                string   `json:"homepage,omitempty"`
+	ChangelogURL            string   `json:"changelogUrl,omitempty"`
+	CurrentVersionTimestamp string   `json:"currentVersionTimestamp,omitempty"`
+}
+
+// Update is one candidate update Renovate proposed for a dependency.
+type Update struct {
+	NewVersion       string `json:"newVersion"`
+	UpdateType       string `json:"updateType,omitempty"`
+	ReleaseTimestamp string `json:"releaseTimestamp,omitempty"`
+	IsBreaking       bool   `json:"isBreaking,omitempty"`
 }
 
 // Cache holds parsed rows keyed by log filename; safe for concurrent use.
@@ -60,6 +79,23 @@ func (c *Cache) set(name string, rows []Row) {
 	c.version++
 }
 
+func (c *Cache) remove(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.entries[name]; !ok {
+		return
+	}
+	delete(c.entries, name)
+	keys := c.sorted[:0]
+	for _, k := range c.sorted {
+		if k != name {
+			keys = append(keys, k)
+		}
+	}
+	c.sorted = keys
+	c.version++
+}
+
 func (c *Cache) names() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -81,10 +117,11 @@ func (c *Cache) ver() int {
 	return c.version
 }
 
-// pickLatest returns the best "latest version" from a dep's updates list.
-func pickLatest(updates []map[string]any) string {
+// latestUpdate returns the update with the newest release timestamp, falling
+// back to the last entry when no update carries a timestamp.
+func latestUpdate(updates []map[string]any) map[string]any {
 	if len(updates) == 0 {
-		return ""
+		return nil
 	}
 	var chosen map[string]any
 	var maxTS string
@@ -97,11 +134,38 @@ func pickLatest(updates []map[string]any) string {
 	if chosen == nil {
 		chosen = updates[len(updates)-1]
 	}
-	if v, _ := chosen["newVersion"].(string); v != "" {
+	return chosen
+}
+
+func updateVersion(u map[string]any) string {
+	if v, _ := u["newVersion"].(string); v != "" {
 		return v
 	}
-	v, _ := chosen["newValue"].(string)
+	v, _ := u["newValue"].(string)
 	return v
+}
+
+// pickLatest returns the best "latest version" from a dep's updates list.
+func pickLatest(updates []map[string]any) string {
+	if u := latestUpdate(updates); u != nil {
+		return updateVersion(u)
+	}
+	return ""
+}
+
+func warningMessages(v any) []string {
+	var out []string
+	for _, w := range castSlice(v) {
+		switch w := w.(type) {
+		case map[string]any:
+			if m, _ := w["message"].(string); m != "" {
+				out = append(out, m)
+			}
+		case string:
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func extractDeps(obj map[string]any, seen map[[5]string]bool) []Row {
@@ -135,12 +199,24 @@ func extractDeps(obj map[string]any, seen map[[5]string]bool) []Row {
 				versioning, _ := dep["versioning"].(string)
 
 				var updates []map[string]any
+				var candidates []Update
 				for _, u := range castSlice(dep["updates"]) {
-					if um, ok := u.(map[string]any); ok {
-						updates = append(updates, um)
+					um, ok := u.(map[string]any)
+					if !ok {
+						continue
 					}
+					updates = append(updates, um)
+					c := Update{NewVersion: updateVersion(um)}
+					c.UpdateType, _ = um["updateType"].(string)
+					c.ReleaseTimestamp, _ = um["releaseTimestamp"].(string)
+					c.IsBreaking, _ = um["isBreaking"].(bool)
+					candidates = append(candidates, c)
 				}
-				latest := pickLatest(updates)
+				chosen := latestUpdate(updates)
+				var latest string
+				if chosen != nil {
+					latest = updateVersion(chosen)
+				}
 				if latest == "" {
 					latest = currentVersion
 				}
@@ -148,6 +224,10 @@ func extractDeps(obj map[string]any, seen map[[5]string]bool) []Row {
 					latest = currentValue
 				}
 				outdated := latest != "" && latest != currentVersion && latest != currentValue
+				var updateType string
+				if outdated {
+					updateType, _ = chosen["updateType"].(string)
+				}
 
 				key := [5]string{repository, packageFile, depName, currentVersion, currentValue}
 				if seen[key] {
@@ -167,11 +247,27 @@ func extractDeps(obj map[string]any, seen map[[5]string]bool) []Row {
 					Datasource:     datasource,
 					Versioning:     versioning,
 					Outdated:       outdated,
+
+					UpdateType:              updateType,
+					Updates:                 candidates,
+					DepType:                 str(dep["depType"]),
+					SkipReason:              str(dep["skipReason"]),
+					Warnings:                warningMessages(dep["warnings"]),
+					DeprecationMessage:      str(dep["deprecationMessage"]),
+					SourceURL:               str(dep["sourceUrl"]),
+					Homepage:                str(dep["homepage"]),
+					ChangelogURL:            str(dep["changelogUrl"]),
+					CurrentVersionTimestamp: str(dep["currentVersionTimestamp"]),
 				})
 			}
 		}
 	}
 	return rows
+}
+
+func str(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func castSlice(v any) []any {
@@ -222,20 +318,41 @@ func parseLog(path string) ([]Row, error) {
 	return rows, nil
 }
 
-func loadAll(logsDir string, cache *Cache) {
+// fileStamp identifies a version of a log file on disk.
+type fileStamp struct {
+	size    int64
+	modTime time.Time
+}
+
+// syncDir brings cache in line with the .json files in logsDir: new or
+// changed files are (re)parsed and deleted files are dropped. known tracks
+// the stamp of each file as of the last sync and is updated in place.
+func syncDir(logsDir string, cache *Cache, known map[string]fileStamp) {
 	entries, err := os.ReadDir(logsDir)
 	if err != nil {
 		log.Printf("readdir %s: %v", logsDir, err)
 		return
 	}
+	present := make(map[string]bool)
 	var wg sync.WaitGroup
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".json") {
 			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		present[name] = true
+		stamp := fileStamp{size: info.Size(), modTime: info.ModTime()}
+		prev, seen := known[name]
+		if seen && prev == stamp {
+			continue
+		}
+		known[name] = stamp
 		wg.Add(1)
-		go func(n string) {
+		go func(n string, reload bool) {
 			defer wg.Done()
 			rows, err := parseLog(filepath.Join(logsDir, n))
 			if err != nil {
@@ -243,37 +360,28 @@ func loadAll(logsDir string, cache *Cache) {
 				return
 			}
 			cache.set(n, rows)
-			log.Printf("loaded %-50s %d rows", n, len(rows))
-		}(name)
+			verb := "loaded"
+			if reload {
+				verb = "reloaded"
+			}
+			log.Printf("%-8s %-50s %d rows", verb, n, len(rows))
+		}(name, seen)
 	}
 	wg.Wait()
+	for name := range known {
+		if !present[name] {
+			delete(known, name)
+			cache.remove(name)
+			log.Printf("removed  %s", name)
+		}
+	}
 }
 
-// watchDir polls for new .json files every 30 s and loads them into cache.
-func watchDir(logsDir string, cache *Cache) {
-	known := make(map[string]bool)
-	for _, n := range cache.names() {
-		known[n] = true
-	}
+// watchDir re-syncs the log directory every interval.
+func watchDir(logsDir string, cache *Cache, known map[string]fileStamp, interval time.Duration) {
 	for {
-		time.Sleep(30 * time.Second)
-		entries, _ := os.ReadDir(logsDir)
-		for _, e := range entries {
-			name := e.Name()
-			if e.IsDir() || known[name] || !strings.HasSuffix(name, ".json") {
-				continue
-			}
-			known[name] = true
-			go func(n string) {
-				rows, err := parseLog(filepath.Join(logsDir, n))
-				if err != nil {
-					log.Printf("parse %s: %v", n, err)
-					return
-				}
-				cache.set(n, rows)
-				log.Printf("new log loaded: %s (%d rows)", n, len(rows))
-			}(name)
-		}
+		time.Sleep(interval)
+		syncDir(logsDir, cache, known)
 	}
 }
 
@@ -295,10 +403,11 @@ func main() {
 
 	cache := newCache()
 	log.Printf("loading logs from %s ...", logsDir)
-	loadAll(logsDir, cache)
+	known := make(map[string]fileStamp)
+	syncDir(logsDir, cache, known)
 	log.Printf("%d logs loaded", len(cache.names()))
 
-	go watchDir(logsDir, cache)
+	go watchDir(logsDir, cache, known, 30*time.Second)
 
 	mux := http.NewServeMux()
 
@@ -342,6 +451,7 @@ func main() {
 		_ = cw.Write([]string{
 			"Repository", "Manager", "Package File", "Dep Name", "Package Name",
 			"Current Value", "Current Version", "Latest Version", "Datasource", "Versioning", "Outdated",
+			"Update Type", "Skip Reason", "Source URL",
 		})
 		for _, row := range rows {
 			outdated := "no"
@@ -352,6 +462,7 @@ func main() {
 				row.Repository, row.Manager, row.PackageFile, row.DepName, row.PackageName,
 				row.CurrentValue, row.CurrentVersion, row.LatestVersion,
 				row.Datasource, row.Versioning, outdated,
+				row.UpdateType, row.SkipReason, row.SourceURL,
 			})
 		}
 		cw.Flush()
