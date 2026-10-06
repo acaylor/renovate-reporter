@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Added
 
 - Run summary with a breakdown by update type (major, minor, patch, other), up to date, and skipped. Each segment works as a filter.
@@ -23,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Export CSV in the UI now exports the rows currently shown instead of the whole log.
+- Updated the Go Docker build image from `golang:1.26-alpine` to `golang:1.27-alpine` as suggested by Renovate.
+- Updated GitHub Actions dependencies suggested by Renovate: `actions/checkout` from v4 to v7 and `actions/setup-go` from v5 to v7 in the CI and release workflows.
+- Updated Docker GitHub Actions dependencies suggested by Renovate: `docker/setup-buildx-action` from v3 to v4, `docker/metadata-action` from v5 to v6, `docker/login-action` from v3 to v4, and `docker/build-push-action` from v6 to v7.
 
 ### Fixed
 
@@ -41,5 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minimal distroless container image published to GitHub Container Registry.
 - GitHub Actions CI for tests, CLI builds, and container image publishing.
 
-[Unreleased]: https://github.com/acaylor/renovate-reporter/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/acaylor/renovate-reporter/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/acaylor/renovate-reporter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/acaylor/renovate-reporter/releases/tag/v0.1.0
